@@ -1074,7 +1074,7 @@ class MainWindow(QMainWindow):
         self.presets_dir = presets_dir if presets_dir is not None else default_presets_dir()
         self.history = history if history is not None else History(default_history_path())
         self.setWindowTitle("JABR")
-        self.resize(960, 820)
+        self.resize(1400, 820)
 
         self.model = FileModel()
         self.table = FileTable(self.model)
