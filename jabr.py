@@ -1251,6 +1251,7 @@ class MainWindow(QMainWindow):
         self.refresh()
         self.update_undo_button()
         self.statusBar().showMessage(f"Renamed {len(jobs)} file(s). Ctrl+Z to undo.", 8000)
+        self.clear()
 
     # -- presets
     def _fill_presets_menu(self):
