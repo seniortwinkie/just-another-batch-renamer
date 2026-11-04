@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=JABR
+GenericName=File Renamer
+Comment=Rename many files at once with regex and numbering filters
+Exec=jabr %F
+Icon=jabr.png
+Categories=Utility;FileTools;
+Terminal=false

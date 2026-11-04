@@ -1,0 +1,4 @@
+# Essentials has everything the app uses (QtCore/QtGui/QtWidgets) without the
+# much larger Addons package that the plain "PySide6" meta-package also pulls in.
+# NOTE: no < or > characters here - python-appimage passes each line through a shell.
+PySide6-Essentials~=6.5
