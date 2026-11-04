@@ -159,7 +159,7 @@ _REGEX_META = re.compile(r"([\\.^$*+?{}\[\]|()])")
 def escape_regex(text: str) -> str:
     """Backslash-escape regex metacharacters (| . ( ) [ ] etc.) so `text` matches
     itself literally. Unlike re.escape this leaves spaces and punctuation alone,
-    which keeps pasted patterns readable. Look-alikes such as the fullwidth bar
+    which keeps pasted patterns readable. Lookalikes such as the fullwidth bar
     (U+FF5C) are not special and are left as they are."""
     return _REGEX_META.sub(r"\\\1", text)
 
@@ -445,7 +445,7 @@ class FileModel(QAbstractTableModel):
     # -- Mutation
     def move_rows(self, rows: list[int], target: int) -> tuple[int, int]:
         """Move `rows` so they sit together at insertion point `target`
-        (an index into the current list, 0..len). Returns (new_start, count),
+        (an index into the current list, 0...len). Returns (new_start, count),
         or (-1, 0) if nothing moved."""
         n = len(self.files)
         picked = sorted({r for r in rows if 0 <= r < n})
@@ -560,7 +560,7 @@ class FileModel(QAbstractTableModel):
 class CopyableLineEdit(QLineEdit):
     """Read-only text box: select any part of the text and copy it (Ctrl+C).
     Right-click, or Ctrl+Shift+C, also offers "Copy as regex (escaped)" so a
-    selected | or ( pastes into a pattern as a literal character."""
+    selected | or ( pastes into a pattern as a literal character )."""
 
     def __init__(self, parent=None):
         super().__init__(parent)
@@ -747,7 +747,7 @@ class FilterPanel(QWidget):
 
     def __init__(self):
         super().__init__()
-        self.filters: list[Filter] = [Filter()]
+        self.filters: list[Filter] = []   # starts empty; filters are added from the Add menu
         self._loading = False
 
         # -- filter list
@@ -834,7 +834,7 @@ class FilterPanel(QWidget):
         self.stack = QStackedWidget()
         self.stack.addWidget(regex_page)          # 0
         self.stack.addWidget(num_page)            # 1
-        self.stack.addWidget(QLabel("Select or add a filter."))  # 2
+        self.stack.addWidget(QLabel("No filter selected. Use Add \u25be to create one."))  # 2
         self.stack.addWidget(text_page)           # 3
 
         self.err_label = QLabel()
@@ -891,7 +891,7 @@ class FilterPanel(QWidget):
         layout.setContentsMargins(0, 0, 0, 0)
         layout.addWidget(self.preview_box)
         layout.addLayout(columns, 1)
-        self.rebuild(select=0)
+        self.rebuild()
 
     @staticmethod
     def _hint(text: str) -> QLabel:
@@ -1018,7 +1018,7 @@ class FilterPanel(QWidget):
 
     def set_preview(self, title: str, original: str, modified: str,
                     state: str = "empty", error: str = ""):
-        """state: 'changed' (green), 'same' (grey), 'error' (red) or 'empty'."""
+        """state: 'changed' (green), 'same' (gray), 'error' (red) or 'empty'."""
         self.preview_box.setTitle(title)
         self.preview_orig.setText(original)
         self.preview_new.setText(modified)
@@ -1029,12 +1029,12 @@ class FilterPanel(QWidget):
         self.preview_new.setToolTip(error)
 
     def has_content(self) -> bool:
-        """False when the stack is empty or just the untouched starter filter."""
+        """False when the stack is empty or holds only blank regex filters (which do nothing)."""
         return any(f.kind != "regex" or f.pattern or f.replacement for f in self.filters)
 
     def set_filters(self, filters: list[Filter], append: bool = False):
         if append:
-            # drop the untouched starter filter so it doesn't sit above the preset
+            # drop blank regex filters (no-ops) so they don't sit above the preset
             base = [f for f in self.filters
                     if f.kind != "regex" or f.pattern or f.replacement]
             self.filters = base + list(filters)
@@ -1384,7 +1384,7 @@ def main():
     app.setApplicationName("JABR")
     app.setDesktopFileName("JABR")   # lets docks/taskbars match the .desktop launcher
     here = Path(__file__).resolve().parent
-    for icon in (here / "jabr.png", here / "packaging" / "jabr.png", here / "icons" / "jabr.png"):
+    for icon in (here / "jabr.png", here / "packaging" / "jabr.png"):
         if icon.exists():
             app.setWindowIcon(QIcon(str(icon)))
             break
