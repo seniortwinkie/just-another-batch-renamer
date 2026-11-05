@@ -41,8 +41,8 @@ from PySide6.QtGui import (
 )
 from PySide6.QtWidgets import (
     QAbstractItemView, QApplication, QCheckBox, QFileDialog, QFormLayout,
-    QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu,
-    QMessageBox, QPushButton, QSpinBox, QSplitter, QStackedWidget, QStyledItemDelegate,
+    QGridLayout, QGroupBox, QHBoxLayout, QHeaderView, QLabel, QLineEdit, QMainWindow, QMenu,
+    QMessageBox, QPushButton, QSizePolicy, QSpinBox, QSplitter, QStackedWidget, QStyledItemDelegate,
     QTableView, QTableWidget, QTableWidgetItem, QVBoxLayout, QWidget,
 )
 
@@ -547,6 +547,22 @@ class FileModel(QAbstractTableModel):
         self.errors = [None] * len(self.files)
         self.endResetModel()
 
+    def context_for(self, row: int) -> FileContext:
+        """Where one file sits in the list, for numbering filters."""
+        p = self.files[row]
+        return FileContext(row, len(self.files),
+                           sum(1 for q in self.files[:row] if q.parent == p.parent),
+                           sum(1 for q in self.files if q.parent == p.parent))
+
+    def preview_name(self, row: int, filters: list[Filter], include_ext: bool):
+        """The name file `row` would get from just these filters (used by the live
+        preview). Returns (name, error_or_None). Does not touch new_names."""
+        steps, _ = build_steps(filters)
+        p = self.files[row]
+        base, ext = (p.name, "") if include_ext else (p.stem, p.suffix)
+        new, err = compute_new_name(base, steps, self.context_for(row))
+        return new + ext, err
+
     def jobs(self) -> list[tuple[Path, Path]]:
         return [(p, p.with_name(n)) for p, n in zip(self.files, self.new_names) if n != p.name]
 
@@ -625,8 +641,8 @@ class FileTable(QTableView):
         self.verticalHeader().setVisible(False)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.Interactive)
         self.horizontalHeader().setStretchLastSection(True)
-        self.setColumnWidth(0, 260)
-        self.setColumnWidth(1, 260)
+        self.setColumnWidth(0, 670)
+        #self.setColumnWidth(1, 260)
         self._drop_row: int | None = None
 
     # -- helpers
@@ -744,6 +760,7 @@ class FileTable(QTableView):
 # --------------------------------------------------------------------------
 class FilterPanel(QWidget):
     changed = Signal()
+    selection_changed = Signal()   # a different filter was selected (or none)
 
     def __init__(self):
         super().__init__()
@@ -870,22 +887,35 @@ class FilterPanel(QWidget):
         columns.addLayout(left, 3)
         columns.addLayout(right, 2)
 
-        # Live preview strip: one file's name before and after the whole filter stack
+        # Live preview strip: one file's name before and after the filter stack. With a
+        # filter selected, "before" is the name coming into that filter and "after" is the
+        # name coming out of it (filters below it are ignored).
         self.preview_box = QGroupBox("Live preview")
         self.preview_orig = CopyableLineEdit()
         self.preview_new = QLineEdit()
         self.preview_new.setReadOnly(True)   # selectable/copyable, but not editable
-        self.preview_orig.setToolTip(
-            "Select text and press Ctrl+C to copy it.\n"
-            "Right-click or Ctrl+Shift+C: copy escaped for a regex (| becomes \\|).")
+        self._orig_tip = ("Select text and press Ctrl+C to copy it.\n"
+                          "Right-click or Ctrl+Shift+C: copy escaped for a regex (| becomes \\|).")
+        self.preview_orig.setToolTip(self._orig_tip)
         self.preview_orig.setPlaceholderText("(add files to see a preview)")
         self.preview_new.setPlaceholderText("(add files to see a preview)")
-        prow = QHBoxLayout(self.preview_box)
-        prow.addWidget(QLabel("Original file name:"))
-        prow.addWidget(self.preview_orig, 1)
-        prow.addWidget(QLabel("\u2192"))
-        prow.addWidget(QLabel("Modified file name:"))
-        prow.addWidget(self.preview_new, 1)
+        grid = QGridLayout(self.preview_box)
+        self.preview_orig_label = QLabel("Original file name:")
+        self.preview_new_label = QLabel("Modified file name:")
+        # Labels sit in a row ABOVE the boxes. Their width is ignored by the layout, so
+        # changing the label text (e.g. "Before filter 10:") can never move or resize
+        # the boxes; both boxes always share the width equally.
+        for lbl in (self.preview_orig_label, self.preview_new_label):
+            lbl.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Preferred)
+        arrow = QLabel("\u2192")
+        arrow.setAlignment(Qt.AlignCenter)
+        grid.addWidget(self.preview_orig_label, 0, 0)
+        grid.addWidget(self.preview_new_label, 0, 2)
+        grid.addWidget(self.preview_orig, 1, 0)
+        grid.addWidget(arrow, 1, 1)
+        grid.addWidget(self.preview_new, 1, 2)
+        grid.setColumnStretch(0, 1)
+        grid.setColumnStretch(2, 1)
 
         layout = QVBoxLayout(self)
         layout.setContentsMargins(0, 0, 0, 0)
@@ -959,6 +989,7 @@ class FilterPanel(QWidget):
         if row < 0 or row >= len(self.filters):
             self.stack.setCurrentIndex(2)
             self.err_label.setText("")
+            self.selection_changed.emit()
             return
         f = self.filters[row]
         self._loading = True
@@ -981,6 +1012,13 @@ class FilterPanel(QWidget):
             self.folder_box.setChecked(f.per_folder)
         self._loading = False
         self._refresh_rows()
+        self.selection_changed.emit()
+
+    def selected_filter_index(self) -> int:
+        """Row of the selected filter, or -1 when none is selected."""
+        rows = self.table.selectionModel().selectedRows()
+        row = rows[0].row() if rows else -1
+        return row if 0 <= row < len(self.filters) else -1
 
     # -- edits
     def _edited(self, *_):
@@ -1017,9 +1055,14 @@ class FilterPanel(QWidget):
     PREVIEW_COLORS = {"changed": "#2a9d4a", "same": "#888", "error": "#d33", "empty": ""}
 
     def set_preview(self, title: str, original: str, modified: str,
-                    state: str = "empty", error: str = ""):
+                    state: str = "empty", error: str = "",
+                    left_label: str = "Original file name:",
+                    right_label: str = "Modified file name:", left_tip: str = ""):
         """state: 'changed' (green), 'same' (gray), 'error' (red) or 'empty'."""
         self.preview_box.setTitle(title)
+        self.preview_orig_label.setText(left_label)
+        self.preview_new_label.setText(right_label)
+        self.preview_orig.setToolTip(f"{left_tip}\n\n{self._orig_tip}" if left_tip else self._orig_tip)
         self.preview_orig.setText(original)
         self.preview_new.setText(modified)
         self.preview_orig.setCursorPosition(0)
@@ -1083,6 +1126,7 @@ class MainWindow(QMainWindow):
         self.table.selectionModel().selectionChanged.connect(self.update_preview)
         self.panel = FilterPanel()
         self.panel.changed.connect(self.refresh)
+        self.panel.selection_changed.connect(self.update_preview)
 
         self.include_ext = QCheckBox("Apply filters to extension too")
         self.include_ext.toggled.connect(self.refresh)
@@ -1229,10 +1273,50 @@ class MainWindow(QMainWindow):
             which = "selected file" if len(rows) == 1 else f"first of {len(rows)} selected files"
         else:
             row, which = 0, "first file in list"
-        path, new, err = self.model.files[row], self.model.new_names[row], self.model.errors[row]
+        path = self.model.files[row]
+        head = f"Live preview \u2013 {which} ({row + 1} of {n})"
+
+        k = self.panel.selected_filter_index()
+        if k >= 0:
+            self._show_step_preview(head, row, k)
+            return
+
+        new, err = self.model.new_names[row], self.model.errors[row]
         state = "error" if err else ("same" if new == path.name else "changed")
-        self.panel.set_preview(f"Live preview \u2013 {which} ({row + 1} of {n})",
-                               path.name, new, state, err or "")
+        self.panel.set_preview(head, path.name, new, state, err or "")
+
+    def _show_step_preview(self, head: str, row: int, k: int):
+        """A filter is selected. Left: the original name, or the result of the filters
+        above it. Right: the result including the selected filter. Filters below it are
+        ignored, and the file list's final names are not touched."""
+        filters, inc = self.panel.filters, self.include_ext.isChecked()
+        f, total = filters[k], len(filters)
+        path = self.model.files[row]
+        before, _ = self.model.preview_name(row, filters[:k], inc)
+        after, call_err = self.model.preview_name(row, filters[:k + 1], inc)
+        step_err = build_steps(filters[:k + 1])[1].get(k)   # e.g. invalid regex
+
+        blank = (f.kind == "regex" and not f.pattern) or (f.kind == "text" and not f.find)
+        if step_err or call_err:
+            state, tip = "error", step_err or call_err
+        elif after == before:
+            state = "same"
+            tip = ("This filter is switched off." if not f.enabled else
+                   "Nothing to do yet: this filter is empty." if blank else
+                   "This filter does not change this file's name.")
+        else:
+            state, tip = "changed", ""
+
+        if k == 0:
+            left_label, left_tip = "Original file name:", ""
+        else:
+            left_label = f"Before filter {k + 1}:"
+            upto = "filter 1" if k == 1 else f"filters 1\u2013{k}"
+            left_tip = (f"The name after {upto}, which is what filter {k + 1} receives. "
+                        f"The original name is {path.name}")
+        self.panel.set_preview(f"{head} \u2013 filter {k + 1} of {total}", before, after,
+                               state, tip, left_label=left_label,
+                               right_label=f"After filter {k + 1}:", left_tip=left_tip)
 
     def do_rename(self):
         jobs = self.model.jobs()
