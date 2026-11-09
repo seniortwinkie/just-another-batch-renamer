@@ -27,7 +27,7 @@ call :arg %3
 echo.
 echo ==^> Checking the project files
 set "MISSING="
-for %%F in (jabr.py packaging\jabr.png icons\make_icons.py) do if not exist "%HERE%%%F" set "MISSING=1" & echo   missing: %%F
+for %%F in (jabr.py packaging\jabr.png icons\jabr.ico) do if not exist "%HERE%%%F" set "MISSING=1" & echo missing: %%F
 if defined MISSING goto :missingfiles
 
 echo.
@@ -50,19 +50,14 @@ if errorlevel 1 goto :fail
 set "VPY=%BUILD%\venv\Scripts\python.exe"
 "%VPY%" -m pip install --quiet --upgrade pip
 if errorlevel 1 goto :fail
-"%VPY%" -m pip install --quiet pyinstaller "PySide6-Essentials~=6.5" pillow
-if errorlevel 1 goto :fail
-
-echo.
-echo ==^> Creating the program icon
-"%VPY%" "%HERE%icons\make_icons.py" "%BUILD%\icons"
+"%VPY%" -m pip install --quiet pyinstaller "PySide6-Essentials~=6.5"
 if errorlevel 1 goto :fail
 
 echo.
 echo ==^> Building with PyInstaller (%MODE%)
 if exist "%DIST%\JABR.exe" del /q "%DIST%\JABR.exe"
 if exist "%DIST%\JABR" rmdir /s /q "%DIST%\JABR"
-"%VPY%" -m PyInstaller --noconfirm --clean %WINOPT% --%MODE% --name JABR --icon "%BUILD%\icons\app.ico" --add-data "%HERE%packaging\jabr.png;packaging" --distpath "%DIST%" --workpath "%BUILD%\pyi" --specpath "%BUILD%" "%HERE%jabr.py"
+"%VPY%" -m PyInstaller --noconfirm --clean %WINOPT% --%MODE% --name JABR --icon "%HERE%icons\jabr.ico" --add-data "%HERE%packaging\jabr.png;packaging" --distpath "%DIST%" --workpath "%BUILD%\pyi" --specpath "%BUILD%" "%HERE%jabr.py"
 if errorlevel 1 goto :fail
 
 set "EXE=%DIST%\JABR.exe"
