@@ -15,6 +15,9 @@
 #                                         (the python.org installer is; Homebrew's is not).
 #   PYTHON=/path/to/python3               use a specific Python
 #
+# App icon: icons/jabr.icns if it exists, otherwise any other icons/*.icns, otherwise
+# icons/jabr.png (PyInstaller converts a PNG to .icns itself, using Pillow).
+#
 # (Written to work with the old bash 3.2 that macOS ships.)
 set -euo pipefail
 
@@ -40,7 +43,8 @@ on_error() {
   echo
   echo "!! BUILD FAILED while: $STEP   (exit code $code, script line ${BASH_LINENO[0]})"
   echo "!! No app was created. Full output of this run: $LOG"
-  echo "!! Common causes: no internet (PyPI blocked), or Python older than 3.9."
+  echo "!! Look at the error just above this message. Common causes: no internet"
+  echo "!! (PyPI blocked), or Python older than 3.9."
   sleep 1   # let the log writer flush before the prompt returns
 }
 trap on_error ERR
@@ -49,13 +53,27 @@ trap on_error ERR
 
 say "Checking the project files"
 missing=""
-for f in jabr.py packaging/jabr.png icons/make_icons.py; do
+for f in jabr.py icons/jabr.png; do
   [ -f "$HERE/$f" ] || missing="$missing  $f"$'\n'
 done
 if [ -n "$missing" ]; then
   printf 'These files are missing (looked in %s):\n%s\n' "$HERE" "$missing"
-  die "run this script from the folder that contains jabr.py, packaging/ and icons/"
+  die "run this script from the folder that contains jabr.py and icons/"
 fi
+
+say "Choosing the app icon"
+ICON=""
+if [ -f "$HERE/icons/jabr.icns" ]; then
+  ICON="$HERE/icons/jabr.icns"
+else
+  for f in "$HERE"/icons/*.icns; do
+    if [ -f "$f" ]; then ICON="$f"; break; fi
+  done
+fi
+if [ -z "$ICON" ]; then
+  ICON="$HERE/icons/jabr.png"     # PyInstaller converts this to .icns (needs Pillow, installed below)
+fi
+echo "using icon: $ICON"
 
 say "Checking Python"
 PY="${PYTHON:-python3}"
@@ -69,19 +87,17 @@ say "Setting up the build environment"
 VPY="$BUILD/venv/bin/python"
 "$VPY" -m pip install --quiet --upgrade pip
 # PySide6-Essentials has everything the app uses, without the huge Addons package.
+# Pillow lets PyInstaller convert a PNG icon to .icns.
 "$VPY" -m pip install --quiet pyinstaller "PySide6-Essentials~=6.5" pillow
-
-say "Creating the app icon"
-"$VPY" "$HERE/icons/make_icons.py" "$BUILD/icons"
 
 say "Building $APPNAME.app with PyInstaller"
 rm -rf "$APP" "${DIST:?}/$APPNAME" "$BUILD/pyi"
 "$VPY" -m PyInstaller --noconfirm --clean --windowed \
   --name "$APPNAME" \
-  --icon "$BUILD/icons/app.icns" \
+  --icon "$ICON" \
   --osx-bundle-identifier "$BUNDLE_ID" \
   ${TARGET_ARCH:+--target-architecture "$TARGET_ARCH"} \
-  --add-data "$HERE/packaging/jabr.png:packaging" \
+  --add-data "$HERE/icons/jabr.png:packaging" \
   --distpath "$DIST" --workpath "$BUILD/pyi" --specpath "$BUILD" \
   "$HERE/jabr.py"
 
